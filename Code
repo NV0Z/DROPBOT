@@ -9,7 +9,7 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LP = Players.LocalPlayer
 
---// ========= CONFIG ========= \\--
+--// ========= CONFIG (from getgenv) ========= \\--
 local Config = getgenv().Configuration
 local OwnerId = Config.OwnerId
 local DropAmount = Config.DropAmount
@@ -22,67 +22,78 @@ local Dropping = false
 local DropConnection
 local Whitelist = { [OwnerId] = true }
 
---// ========= GUI ========= \\--
-local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+--// ========= UI ========= \\--
+local ScreenGui = Instance.new("ScreenGui", LP.PlayerGui)
 local ChatFrame = Instance.new("Frame", ScreenGui)
 ChatFrame.Size = UDim2.new(0, 300, 0, 200)
-ChatFrame.Position = UDim2.new(0, 10, 0, 400)
-ChatFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-ChatFrame.BorderSizePixel = 0
-ChatFrame.Visible = true
+ChatFrame.Position = UDim2.new(0, 10, 0.7, 0)
+ChatFrame.BackgroundTransparency = 0.3
+ChatFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 
-local ChatList = Instance.new("UIListLayout", ChatFrame)
-ChatList.SortOrder = Enum.SortOrder.LayoutOrder
+local ChatBox = Instance.new("ScrollingFrame", ChatFrame)
+ChatBox.Size = UDim2.new(1, 0, 1, 0)
+ChatBox.CanvasSize = UDim2.new(0, 0, 0, 0)
+ChatBox.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ChatBox.ScrollBarThickness = 4
 
+--// ========= FUNCTIONS ========= \\--
 local function addChatLine(text, highlight)
-    local lbl = Instance.new("TextLabel", ChatFrame)
-    lbl.Size = UDim2.new(1, -5, 0, 18)
-    lbl.BackgroundTransparency = 1
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Font = Enum.Font.Code
-    lbl.TextSize = 14
-    lbl.TextColor3 = highlight and Color3.fromRGB(255, 200, 50) or Color3.fromRGB(200, 200, 200)
-    lbl.Text = text
+    local Label = Instance.new("TextLabel", ChatBox)
+    Label.Size = UDim2.new(1, -5, 0, 18)
+    Label.BackgroundTransparency = 1
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Font = Enum.Font.Code
+    Label.TextSize = 14
+    Label.Text = text
+    Label.TextColor3 = highlight and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 255, 255)
 end
 
 local function sendChat(msg)
-    game.ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All")
+    ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All")
 end
 
---// ========= FUNCTIONS ========= \\--
 local function teleportAndFreeze()
-    LP.Character:MoveTo(DropPos)
+    LP.Character:PivotTo(CFrame.new(DropPos))
     Frozen = true
-    LP.Character.HumanoidRootPart.Anchored = true
+    local char = LP.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char.HumanoidRootPart.Anchored = true
+    end
     sendChat("[BOT] Teleported & frozen.")
 end
 
 local function unfreeze()
     Frozen = false
-    if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-        LP.Character.HumanoidRootPart.Anchored = false
+    local char = LP.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char.HumanoidRootPart.Anchored = false
     end
     sendChat("[BOT] Unfrozen.")
 end
 
 local function rejoin()
-    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
+    TeleportService:Teleport(game.PlaceId, LP)
 end
 
 local function stopAll()
+    if DropConnection then
+        DropConnection:Disconnect()
+        DropConnection = nil
+    end
     Dropping = false
-    if DropConnection then DropConnection:Disconnect() DropConnection = nil end
-    sendChat("[BOT] Stopped all loops.")
 end
 
+--// ========= DROP LOOP ========= \\--
 local function autoDrop()
     stopAll()
     local args = { "DropMoney", DropAmount }
     Dropping = true
+
     DropConnection = RunService.Heartbeat:Connect(function()
         ReplicatedStorage:WaitForChild("MainEvent"):FireServer(unpack(args))
         task.wait(DropDelay)
     end)
+
     sendChat("[BOT] Auto drop started.")
 end
 
@@ -96,7 +107,8 @@ TextChatService.OnIncomingMessage = function(message)
     else addChatLine("[System]: " .. msgText, false) end
 
     if not src then return end
-    if src.UserId ~= OwnerId then return end
+    local isOwner = src.UserId == OwnerId
+    if not isOwner then return end
 
     local txt = msgText:lower()
 
@@ -114,10 +126,10 @@ TextChatService.OnIncomingMessage = function(message)
     end
 end
 
---// ========= AUTO CREDIT LOOP (Always On) ========= \\--
+--// ========= AUTO CREDIT LOOP ========= \\--
 task.spawn(function()
     while true do
-        task.wait(300) -- every 5 minutes
+        task.wait(300) -- 5 minutes
         sendChat("Script made by NV0Z")
     end
 end)
