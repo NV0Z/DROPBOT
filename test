@@ -1,0 +1,233 @@
+--// Nervox Stand Bot (GitHub-only file)
+--// Made by kryvendev
+
+--// ========= SERVICES ========= \\--
+local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
+local TeleportService = game:GetService("TeleportService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local LP = Players.LocalPlayer
+
+--// ========= CONFIG (MUST BE SET OUTSIDE via getgenv().Configuration) ========= \\--
+local cfg = getgenv().Configuration
+assert(cfg, "getgenv().Configuration missing - set it before loading this script")
+
+local OwnerId = cfg.OwnerId
+local DropAmount = cfg.DropAmount
+local DropDelay = cfg.DropDelay
+local DropPos = cfg.DropPos
+
+--// ========= WEBHOOK (optional) ========= \\--
+-- If you want webhook notifications, set WEBHOOK below inside the GitHub file.
+-- You can also leave it blank and call sendRunWebhook(url) from outside if desired.
+local WEBHOOK = "https://discord.com/api/webhooks/1420524751599833228/A62MKMVjzYggrWqimWVJ2HBNp__1KJe6oVNlAuxzR7r0665a08yL3qsQMwavvwdj9p0R" -- put your webhook URL here if you want
+
+-- minimal executor detection + HTTP helper
+local function detectExecutor()
+    local ok, id = pcall(function()
+        if type(identifyexecutor) == "function" then return identifyexecutor() end
+        if type(getexecutor) == "function" then return getexecutor() end
+    end)
+    if ok and id and type(id) == "string" and id ~= "" then return id end
+
+    if syn or (type(syn) == "table" and syn.request) then return "Synapse X" end
+    if Krnl or KRNL_LOADED then return "Krnl" end
+    if fluxus or flux then return "Fluxus" end
+    if is_sirhurt_closure or (type(sirhurt_auto) == "function") then return "SirHurt" end
+    if type(request) == "function" then return "Generic(request)" end
+    if type(http_request) == "function" then return "Generic(http_request)" end
+    return "Unknown"
+end
+
+local function httpPost(url, body)
+    if not url or url == "" then return false, "No webhook URL" end
+    -- syn.request
+    if syn and syn.request then
+        local ok, res = pcall(function()
+            return syn.request({ Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body })
+        end)
+        if ok then return true, res end
+    end
+    -- http_request
+    if http_request then
+        local ok, res = pcall(function()
+            return http_request({ Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body })
+        end)
+        if ok then return true, res end
+    end
+    -- request
+    if request then
+        local ok, res = pcall(function()
+            return request({ Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body })
+        end)
+        if ok then return true, res end
+    end
+    -- http.request
+    if http and http.request then
+        local ok, res = pcall(function()
+            return http.request("POST", url, { ["Content-Type"] = "application/json" }, body)
+        end)
+        if ok then return true, res end
+    end
+    -- HttpService:RequestAsync (may be available in some executors)
+    if HttpService and HttpService.RequestAsync then
+        local ok, res = pcall(function()
+            return HttpService:RequestAsync({
+                Url = url,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = body
+            })
+        end)
+        if ok then return true, res end
+    end
+    return false, "No supported HTTP function"
+end
+
+local function sendRunWebhook(webhookUrl)
+    if not webhookUrl or webhookUrl == "" then return false, "No webhook" end
+    local executor = detectExecutor()
+    local playerName = LP and LP.Name or "Unknown"
+    local playerId = LP and tostring(LP.UserId) or "Unknown"
+    local placeId = tostring(game.PlaceId or "Unknown")
+    local timestamp = os.date("!%Y-%m-%d %H:%M:%S") -- UTC
+
+    local embed = {
+        title = "Script executed",
+        description = "Nervox Stand Bot executed (no sensitive data collected).",
+        fields = {
+            { name = "Executor", value = tostring(executor), inline = true },
+            { name = "Player", value = playerName .. " (ID: " .. playerId .. ")", inline = true },
+            { name = "PlaceId", value = placeId, inline = true },
+            { name = "Timestamp (UTC)", value = timestamp, inline = true }
+        },
+        footer = { text = "Nervox Stand Bot" }
+    }
+
+    local payload = { username = "Nervox-Logger", embeds = { embed } }
+    local ok, encoded = pcall(function() return HttpService:JSONEncode(payload) end)
+    if not ok then return false, "JSON encode fail" end
+    return httpPost(webhookUrl, encoded)
+end
+
+-- fire webhook in background (non-blocking)
+task.spawn(function()
+    if WEBHOOK and WEBHOOK ~= "" then
+        pcall(function() sendRunWebhook(WEBHOOK) end)
+    end
+end)
+
+--// ========= VARIABLES ========= \\--
+local Frozen = false
+local Dropping = false
+local DropConnection
+local Whitelist = { [OwnerId] = true }
+
+--// ========= CORE HELPERS ========= \\--
+local function sendChat(msg)
+    pcall(function()
+        -- try default chat event first
+        if ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents") and ReplicatedStorage.DefaultChatSystemChatEvents:FindFirstChild("SayMessageRequest") then
+            ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All")
+            return
+        end
+        -- fallback to TextChatService channel
+        local ch = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+        if ch and ch.SendAsync then
+            ch:SendAsync(msg)
+            return
+        end
+    end)
+end
+
+local function teleportOnly()
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    -- use PivotTo if available for better reliability in executors
+    if pcall(function() return char.PrimaryPart end) and char.PrimaryPart then
+        pcall(function() char:PivotTo(CFrame.new(DropPos)) end)
+    else
+        pcall(function() LP.Character:MoveTo(DropPos) end)
+    end
+    sendChat("[BOT] Teleported to drop zone.")
+end
+
+local function freezeChar()
+    local char = LP.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        pcall(function() char.HumanoidRootPart.Anchored = true end)
+        Frozen = true
+    end
+end
+
+local function unfreeze()
+    Frozen = false
+    local char = LP.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        pcall(function() char.HumanoidRootPart.Anchored = false end)
+    end
+    sendChat("[BOT] Unfrozen.")
+end
+
+local function rejoin()
+    pcall(function() TeleportService:Teleport(game.PlaceId, LP) end)
+end
+
+local function stopAll()
+    if DropConnection then
+        pcall(function() DropConnection:Disconnect() end)
+        DropConnection = nil
+    end
+    Dropping = false
+end
+
+--// ========= DROP LOOP ========= \\--
+local function autoDrop()
+    stopAll()
+    local args = { "DropMoney", DropAmount }
+    Dropping = true
+
+    -- freeze only when auto-drop starts
+    freezeChar()
+
+    DropConnection = RunService.Heartbeat:Connect(function()
+        local ok, ev = pcall(function() return ReplicatedStorage:WaitForChild("MainEvent", 5) end)
+        if ok and ev then
+            pcall(function() ev:FireServer(unpack(args)) end)
+        end
+        task.wait(DropDelay)
+    end)
+
+    sendChat("[BOT] Auto drop started.")
+end
+
+--// ========= CHAT LISTENER (owner only) ========= \\--
+TextChatService.OnIncomingMessage = function(message)
+    local src = message.TextSource
+    if not src then return end
+    if src.UserId ~= OwnerId then return end
+
+    local txt = (message.Text or ""):lower()
+
+    if txt == "!startup" then
+        teleportOnly()
+    elseif txt == "!start" then
+        autoDrop()
+    elseif txt == "!stop" then
+        stopAll()
+        unfreeze()
+    elseif txt == "!rj" then
+        rejoin()
+    elseif txt == "cmds!" then
+        sendChat("Commands: !startup, !start, !stop, !rj, cmds!")
+    end
+end
+
+--// ========= AUTO CREDIT LOOP (always on) ========= \\--
+task.spawn(function()
+    while true do
+        task.wait(300) -- 5 minutes
+        sendChat("Script made by NV0Z")
+    end
+end)
