@@ -1,0 +1,128 @@
+--// Nervox Stand Bot
+--// Made by kryvendev
+
+--// ========= SERVICES ========= \\--
+local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
+local TeleportService = game:GetService("TeleportService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LP = Players.LocalPlayer
+
+--// ========= CONFIG ========= \\--
+local Config = getgenv().Configuration
+local OwnerId = Config.OwnerId
+local DropAmount = Config.DropAmount
+local DropDelay = Config.DropDelay
+local DropPos = Config.DropPos
+
+--// ========= VARIABLES ========= \\--
+local Frozen = false
+local Dropping = false
+local DropConnection, MsgLoop
+local Whitelist = { [OwnerId] = true }
+
+--// ========= GUI ========= \\--
+local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local ChatFrame = Instance.new("Frame", ScreenGui)
+ChatFrame.Size = UDim2.new(0, 300, 0, 200)
+ChatFrame.Position = UDim2.new(0, 10, 0, 400)
+ChatFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+ChatFrame.BorderSizePixel = 0
+ChatFrame.Visible = true
+
+local ChatList = Instance.new("UIListLayout", ChatFrame)
+ChatList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function addChatLine(text, highlight)
+    local lbl = Instance.new("TextLabel", ChatFrame)
+    lbl.Size = UDim2.new(1, -5, 0, 18)
+    lbl.BackgroundTransparency = 1
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Font = Enum.Font.Code
+    lbl.TextSize = 14
+    lbl.TextColor3 = highlight and Color3.fromRGB(255, 200, 50) or Color3.fromRGB(200, 200, 200)
+    lbl.Text = text
+end
+
+local function sendChat(msg)
+    game.ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All")
+end
+
+--// ========= FUNCTIONS ========= \\--
+local function teleportAndFreeze()
+    LP.Character:MoveTo(DropPos)
+    Frozen = true
+    LP.Character.HumanoidRootPart.Anchored = true
+    sendChat("[BOT] Teleported & frozen.")
+end
+
+local function unfreeze()
+    Frozen = false
+    if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+        LP.Character.HumanoidRootPart.Anchored = false
+    end
+    sendChat("[BOT] Unfrozen.")
+end
+
+local function rejoin()
+    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
+end
+
+local function stopAll()
+    Dropping = false
+    if DropConnection then DropConnection:Disconnect() DropConnection = nil end
+    if MsgLoop then MsgLoop:Disconnect() MsgLoop = nil end
+    sendChat("[BOT] Stopped all loops.")
+end
+
+local function autoDrop()
+    stopAll()
+    local args = { "DropMoney", DropAmount }
+    Dropping = true
+
+    DropConnection = RunService.Heartbeat:Connect(function()
+        ReplicatedStorage:WaitForChild("MainEvent"):FireServer(unpack(args))
+        task.wait(DropDelay)
+    end)
+
+    sendChat("[BOT] Auto drop started.")
+end
+
+--// ========= CHAT LISTENER ========= \\--
+TextChatService.OnIncomingMessage = function(message)
+    local src = message.TextSource
+    local sender = src and Players:GetPlayerByUserId(src.UserId)
+    local msgText = message.Text or ""
+
+    if sender then addChatLine(sender.Name .. ": " .. msgText, src.UserId == OwnerId)
+    else addChatLine("[System]: " .. msgText, false) end
+
+    if not src then return end
+    if src.UserId ~= OwnerId then return end
+
+    local txt = msgText:lower()
+
+    if txt == "!startup" then
+        teleportAndFreeze()
+    elseif txt == "!start" then
+        autoDrop()
+    elseif txt == "!stop" then
+        stopAll()
+        unfreeze()
+    elseif txt == "!rj" then
+        rejoin()
+    elseif txt == "chatlogs!" then
+        ChatFrame.Visible = not ChatFrame.Visible
+    elseif txt == "cmds!" then
+        sendChat("Commands: !startup, !start, !stop, !rj, chatlogs!, cmds!")
+    end
+end
+
+--// ========= AUTO CREDIT LOOP (Always On) ========= \\--
+task.spawn(function()
+    while true do
+        task.wait(300) -- every 5 minutes
+        sendChat("Script made by NV0Z")
+    end
+end)
