@@ -22,32 +22,7 @@ local Dropping = false
 local DropConnection
 local Whitelist = { [OwnerId] = true }
 
---// ========= UI ========= \\--
-local ScreenGui = Instance.new("ScreenGui", LP.PlayerGui)
-local ChatFrame = Instance.new("Frame", ScreenGui)
-ChatFrame.Size = UDim2.new(0, 300, 0, 200)
-ChatFrame.Position = UDim2.new(0, 10, 0.7, 0)
-ChatFrame.BackgroundTransparency = 0.3
-ChatFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-
-local ChatBox = Instance.new("ScrollingFrame", ChatFrame)
-ChatBox.Size = UDim2.new(1, 0, 1, 0)
-ChatBox.CanvasSize = UDim2.new(0, 0, 0, 0)
-ChatBox.AutomaticCanvasSize = Enum.AutomaticSize.Y
-ChatBox.ScrollBarThickness = 4
-
 --// ========= FUNCTIONS ========= \\--
-local function addChatLine(text, highlight)
-    local Label = Instance.new("TextLabel", ChatBox)
-    Label.Size = UDim2.new(1, -5, 0, 18)
-    Label.BackgroundTransparency = 1
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Font = Enum.Font.Code
-    Label.TextSize = 14
-    Label.Text = text
-    Label.TextColor3 = highlight and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 255, 255)
-end
-
 local function sendChat(msg)
     ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All")
 end
@@ -83,7 +58,6 @@ local function stopAll()
     Dropping = false
 end
 
---// ========= DROP LOOP ========= \\--
 local function autoDrop()
     stopAll()
     local args = { "DropMoney", DropAmount }
@@ -100,17 +74,10 @@ end
 --// ========= CHAT LISTENER ========= \\--
 TextChatService.OnIncomingMessage = function(message)
     local src = message.TextSource
-    local sender = src and Players:GetPlayerByUserId(src.UserId)
-    local msgText = message.Text or ""
-
-    if sender then addChatLine(sender.Name .. ": " .. msgText, src.UserId == OwnerId)
-    else addChatLine("[System]: " .. msgText, false) end
-
     if not src then return end
-    local isOwner = src.UserId == OwnerId
-    if not isOwner then return end
+    if src.UserId ~= OwnerId then return end
 
-    local txt = msgText:lower()
+    local txt = (message.Text or ""):lower()
 
     if txt == "!startup" then
         teleportAndFreeze()
