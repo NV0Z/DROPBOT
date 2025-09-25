@@ -19,7 +19,7 @@ local DropPos = Config.DropPos
 --// ========= VARIABLES ========= \\--
 local Frozen = false
 local Dropping = false
-local DropConnection, MsgLoop
+local DropConnection
 local Whitelist = { [OwnerId] = true }
 
 --// ========= GUI ========= \\--
@@ -72,7 +72,6 @@ end
 local function stopAll()
     Dropping = false
     if DropConnection then DropConnection:Disconnect() DropConnection = nil end
-    if MsgLoop then MsgLoop:Disconnect() MsgLoop = nil end
     sendChat("[BOT] Stopped all loops.")
 end
 
@@ -80,12 +79,10 @@ local function autoDrop()
     stopAll()
     local args = { "DropMoney", DropAmount }
     Dropping = true
-
     DropConnection = RunService.Heartbeat:Connect(function()
         ReplicatedStorage:WaitForChild("MainEvent"):FireServer(unpack(args))
         task.wait(DropDelay)
     end)
-
     sendChat("[BOT] Auto drop started.")
 end
 
@@ -112,10 +109,8 @@ TextChatService.OnIncomingMessage = function(message)
         unfreeze()
     elseif txt == "!rj" then
         rejoin()
-    elseif txt == "chatlogs!" then
-        ChatFrame.Visible = not ChatFrame.Visible
     elseif txt == "cmds!" then
-        sendChat("Commands: !startup, !start, !stop, !rj, chatlogs!, cmds!")
+        sendChat("Commands: !startup, !start, !stop, !rj, cmds!")
     end
 end
 
